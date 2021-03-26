@@ -40,12 +40,12 @@ async def close_handles():
 logging.basicConfig(level=LOG_LEVEL)
 
 LOOP = asyncio.get_event_loop()
-#LOOP.run_until_complete(open_handles())
+LOOP.run_until_complete(open_handles())
 
 setup_routes(app)
 setup_static_routes(app)
 web.run_app(app, host='127.0.0.1', port=8080)
 
 LOOP = asyncio.new_event_loop()
-#LOOP.run_until_complete(close_handles())
+LOOP.run_until_complete(close_handles())
 LOOP.close()
