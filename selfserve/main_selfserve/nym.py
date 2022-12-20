@@ -10,7 +10,7 @@ import datetime
 import base58
 import requests
 import re
-from aiohttp import web
+from aiohttp import web, ClientSession
 import platform
 from ctypes import cdll
 from dotenv import load_dotenv
@@ -610,9 +610,35 @@ def validateVerkey(did, verkey):
 def validateNym(nym):
     # Validate entry
     #
-    # Must contain DID, verkey, and  optional paymentaddr. All other fields are added by
+    # Must contain first_name, last_name, email, DID, verkey, and  optional paymentaddr. All other fields are added by
     # the lambda(unless this is the version where lambdas are not used).
     errors = []
+    regex_email = '^[a-z0-9]+[\._]?[a-z0-9]+[@]\w+[-]?\w+[.]\w{2,3}$' 
+
+    #  * Working area.
+    # TODO Finish Verification of body data
+    if 'first_name' in nym:
+        pass
+    else:
+        # When a request comes from API Gateway, this is unreachable code
+        errors.append("First name is required to create an identity on the ledger.")
+
+    if 'last_name' in nym:
+        pass
+    else:
+        # When a request comes from API Gateway, this is unreachable code
+        errors.append("Last name is required to create an identity on the ledger.")
+
+    if 'email' in nym:
+        # Validate email
+        if not (re.search(regex_email,nym['email'])):
+            errors.append("Email %s is not valid. Please try again." % nym['email'])
+    else:
+        # When a request comes from API Gateway, this is unreachable code
+        errors.append("Email is required to create an identity on the ledger.")
+
+    #  * Working area.
+
     if 'did' in nym:
         # Validate DID
         if not isValidDID(nym['did']):
@@ -808,6 +834,48 @@ async def verify_captcha(request) -> dict:
         "message": verify_rs.get("error-codes", None) or "Unspecified error.",
     }
 
+#  * Working area.
+
+async def post_airtable(body):
+    """
+    Posts form data to airtable.
+
+    Args:
+        body: app form body.
+    """
+
+    # TODO Set up proper Logging
+    # TODO return data
+    # TODO Fill post_body with body data
+
+    AIRTABLE_API_KEY = os.environ.get('Airtable_API_Key')
+    AIRTABLE_URL = os.environ.get('AIRTABLE_URL')
+
+    print("Building Airtable request ...")
+
+    post_body = {
+        "flddBRmT8GXrxPG3q": 'Jon', # First Name
+        "fldgRCUCKIufr3KgR": 'Doe', # Last Name
+        "fld6qpvdnebww6lGs": 'Jon@example.com', # Email
+        "fldacAICnfmTpNuT4": 'as9d8f7as9d8f7wesfaseas9d8f7sef', # DID
+        "fldg3QZBMZK5zKQX9": 'a9s8ef7as98efas9ef', # Verkey
+        "flde28rRfSdPptF0H": 'extra_name', # name
+        "fldx5CXQYKtDgc7BP": 'paymentaddr' # paymentaddr
+    }
+
+    upload_dict = {"records" : [{"fields" : post_body}], "typecast" : True}
+    upload_json = json.dumps(upload_dict)
+
+    headers = {"Authorization": "Bearer " + AIRTABLE_API_KEY, "Content-Type": "application/json"}
+
+    print('Submitting Airtable request ...')
+    async with ClientSession() as session:
+        async with session.post(AIRTABLE_URL, data=upload_json, headers=headers) as resp:
+            print(resp.status)
+            print(await resp.text())
+
+#  * Working area.
+
 async def handle_nym_req(request):
     handles = request.app['handles']
     xfer_lock = request.app['xfer_lock']
@@ -952,13 +1020,18 @@ def main():
     #       once ledger.build_nym_request accepts None for the NYM 'name/alias'
     errors = {}
 
+    #  * Working area.
     # Mock a body from the client
     body = {
+        "first_name": args.first_name,
+        "last_name": args.last_name,
+        "email": args.email,
         "did": args.DID,
         "verkey": args.verkey,
         "name": args.name,
         "paymentaddr": args.paymentaddr
     }
+    #  * Working area.
 
     # Mock an event from the AWS API Gateway
     event = {
