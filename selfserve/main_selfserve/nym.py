@@ -610,34 +610,9 @@ def validateVerkey(did, verkey):
 def validateNym(nym):
     # Validate entry
     #
-    # Must contain first_name, last_name, email, DID, verkey, and  optional paymentaddr. All other fields are added by
+    # Must contain DID, verkey, and  optional paymentaddr. All other fields are added by
     # the lambda(unless this is the version where lambdas are not used).
     errors = []
-    regex_email = '^[a-z0-9]+[\._]?[a-z0-9]+[@]\w+[-]?\w+[.]\w{2,3}$' 
-
-    #  * Working area.
-    # TODO Finish Verification of body data
-    if 'first_name' in nym:
-        pass
-    else:
-        # When a request comes from API Gateway, this is unreachable code
-        errors.append("First name is required to create an identity on the ledger.")
-
-    if 'last_name' in nym:
-        pass
-    else:
-        # When a request comes from API Gateway, this is unreachable code
-        errors.append("Last name is required to create an identity on the ledger.")
-
-    if 'email' in nym:
-        # Validate email
-        if not (re.search(regex_email,nym['email'])):
-            errors.append("Email %s is not valid. Please try again." % nym['email'])
-    else:
-        # When a request comes from API Gateway, this is unreachable code
-        errors.append("Email is required to create an identity on the ledger.")
-
-    #  * Working area.
 
     if 'did' in nym:
         # Validate DID
@@ -834,7 +809,35 @@ async def verify_captcha(request) -> dict:
         "message": verify_rs.get("error-codes", None) or "Unspecified error.",
     }
 
-#  * Working area.
+async def verify_Info(msgbody) -> dict:
+    # Validate entry info
+    #
+    # Must contain first_name, last_name, email.
+    errors = []
+    regex_email = '^[a-z0-9]+[\._]?[a-z0-9]+[@]\w+[-]?\w+[.]\w{2,3}$' 
+
+    # TODO Finish Verification of body data. Chech to make sure there are no numbers or symbols in first and last names.
+    if 'first_name' in msgbody and msgbody["first_name"] != "":
+        pass
+    else:
+        # When a request comes from API Gateway, this is unreachable code
+        errors.append("First name is required to create an identity on the ledger.")
+
+    if 'last_name' in msgbody and msgbody["last_name"] != "":
+        pass
+    else:
+        # When a request comes from API Gateway, this is unreachable code
+        errors.append("Last name is required to create an identity on the ledger.")
+
+    if 'email' in msgbody and msgbody["email"] != "":
+        # Validate email
+        if not (re.search(regex_email,msgbody['email'])):
+            errors.append("Email %s is not valid. Please try again." % msgbody['email'])
+    else:
+        # When a request comes from API Gateway, this is unreachable code
+        errors.append("Email is required to create an identity on the ledger.")
+
+    return errors
 
 async def post_airtable(body):
     """
@@ -859,7 +862,6 @@ async def post_airtable(body):
         "fld6qpvdnebww6lGs": 'Jon@example.com', # Email
         "fldacAICnfmTpNuT4": 'as9d8f7as9d8f7wesfaseas9d8f7sef', # DID
         "fldg3QZBMZK5zKQX9": 'a9s8ef7as98efas9ef', # Verkey
-        "flde28rRfSdPptF0H": 'extra_name', # name
         "fldx5CXQYKtDgc7BP": 'paymentaddr' # paymentaddr
     }
 
@@ -873,8 +875,6 @@ async def post_airtable(body):
         async with session.post(AIRTABLE_URL, data=upload_json, headers=headers) as resp:
             print(resp.status)
             print(await resp.text())
-
-#  * Working area.
 
 async def handle_nym_req(request):
     handles = request.app['handles']
@@ -891,9 +891,10 @@ async def handle_nym_req(request):
     #logging.debug("Event body >%s<" % event['body'])
     msgbody = await request.json() #written by dbluhm (not copied)
 
-    verified_captcha = await verify_captcha(request)
-    if not verified_captcha["status"]:
-        return web.HTTPUnauthorized()
+    #! UNCOMMENT
+    # verified_captcha = await verify_captcha(request)
+    # if not verified_captcha["status"]:
+    #     return web.HTTPUnauthorized()
 
     # Validate and build nyms from request body; setting name and sourceIP for
     # each nym.
@@ -912,10 +913,8 @@ async def handle_nym_req(request):
     if msgbody['did'] or msgbody['verkey']:
         did = msgbody['did']
         tmp_errors = validateNym(msgbody)
-    if len(tmp_errors) == 0:
-        nyms.append(endorserNym(msgbody)) #, event)) @@@Remove event from this function call? (might mess up Main)
-    else:
-        errors = addErrors(did, errors, tmp_errors)
+
+        logger.info(f'{type(tmp_errors)}{tmp_errors}')
 
     poolName = msgbody['network']
 
@@ -930,6 +929,18 @@ async def handle_nym_req(request):
             logger.info('Request Authenticated.')
     else:
         logger.info(f'Nym bound for {poolName}. No authentication required ...')
+        if msgbody['first_name'] or msgbody['last_name'] or msgbody['email']:
+            verify_info_errors = await verify_Info(msgbody)
+            tmp_errors.append(verify_info_errors) 
+    
+    if len(tmp_errors) == 0:
+        nyms.append(endorserNym(msgbody)) #, event)) @@@Remove event from this function call? (might mess up Main)
+    else:
+        errors = addErrors(did, errors, tmp_errors)
+
+    if poolName == 'buildernet':
+        # TODO post if no error
+        pass
 
     # Check if errors is an empty dict
     if bool(errors) == False:
@@ -1020,18 +1031,13 @@ def main():
     #       once ledger.build_nym_request accepts None for the NYM 'name/alias'
     errors = {}
 
-    #  * Working area.
     # Mock a body from the client
     body = {
-        "first_name": args.first_name,
-        "last_name": args.last_name,
-        "email": args.email,
         "did": args.DID,
         "verkey": args.verkey,
         "name": args.name,
         "paymentaddr": args.paymentaddr
     }
-    #  * Working area.
 
     # Mock an event from the AWS API Gateway
     event = {
