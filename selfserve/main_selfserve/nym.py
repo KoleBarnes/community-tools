@@ -809,22 +809,28 @@ async def verify_captcha(request) -> dict:
         "message": verify_rs.get("error-codes", None) or "Unspecified error.",
     }
 
-async def verify_Info(msgbody) -> dict:
+async def verify_info(msgbody) -> dict:
     # Validate entry info
     #
     # Must contain first_name, last_name, email.
     errors = []
-    regex_email = '^[a-z0-9]+[\._]?[a-z0-9]+[@]\w+[-]?\w+[.]\w{2,3}$' 
+    regex_name = r"^[^0-9`!@#$%^&*()_+=\[\]{};':\"\\|,.<>\/?~]*$"
+    regex_name_minus_hyphen = r"^[^0-9`!@#$%^&*()_+\-=\[\]{};':\"\\|,.<>\/?~]*$"
+    regex_email = r"^[a-z0-9]+[\._]?[a-z0-9]+[@]\w+[-]?\w+[.]\w{2,3}$" 
 
-    # TODO Finish Verification of body data. Chech to make sure there are no numbers or symbols in first and last names.
+    # TODO Comfirm Regexes.
     if 'first_name' in msgbody and msgbody["first_name"] != "":
-        pass
+        # Validate that name only has letters.
+        if not (re.search(regex_name,msgbody['first_name'])):
+            errors.append("First Name %s is not valid. Name must not contain any numbers or symbols; hyphens are ok. Please try again." % msgbody['first_name'])
     else:
         # When a request comes from API Gateway, this is unreachable code
         errors.append("First name is required to create an identity on the ledger.")
 
     if 'last_name' in msgbody and msgbody["last_name"] != "":
-        pass
+        # Validate that name only has letters.
+        if not (re.search(regex_name,msgbody['last_name'])):
+            errors.append("Last Name %s is not valid. Name must not contain any numbers or symbols; hyphens are ok. Please try again." % msgbody['last_name'])
     else:
         # When a request comes from API Gateway, this is unreachable code
         errors.append("Last name is required to create an identity on the ledger.")
@@ -832,24 +838,24 @@ async def verify_Info(msgbody) -> dict:
     if 'email' in msgbody and msgbody["email"] != "":
         # Validate email
         if not (re.search(regex_email,msgbody['email'])):
-            errors.append("Email %s is not valid. Please try again." % msgbody['email'])
+            errors.append("%s is not a valid email address. Please try again." % msgbody['email'])
     else:
         # When a request comes from API Gateway, this is unreachable code
         errors.append("Email is required to create an identity on the ledger.")
 
     return errors
 
-async def post_airtable(body):
+async def post_airtable(msgbody):
     """
     Posts form data to airtable.
 
     Args:
         body: app form body.
     """
-
+    # * Post airtable comfirmed working.
+    # TODO Figure out errors
     # TODO Set up proper Logging
     # TODO return data
-    # TODO Fill post_body with body data
 
     AIRTABLE_API_KEY = os.environ.get('Airtable_API_Key')
     AIRTABLE_URL = os.environ.get('AIRTABLE_URL')
@@ -857,12 +863,12 @@ async def post_airtable(body):
     print("Building Airtable request ...")
 
     post_body = {
-        "flddBRmT8GXrxPG3q": 'Jon', # First Name
-        "fldgRCUCKIufr3KgR": 'Doe', # Last Name
-        "fld6qpvdnebww6lGs": 'Jon@example.com', # Email
-        "fldacAICnfmTpNuT4": 'as9d8f7as9d8f7wesfaseas9d8f7sef', # DID
-        "fldg3QZBMZK5zKQX9": 'a9s8ef7as98efas9ef', # Verkey
-        "fldx5CXQYKtDgc7BP": 'paymentaddr' # paymentaddr
+        "flddBRmT8GXrxPG3q": msgbody['first_name'], # First Name
+        "fldgRCUCKIufr3KgR": msgbody['last_name'], # Last Name
+        "fld6qpvdnebww6lGs": msgbody['email'], # Email
+        "fldacAICnfmTpNuT4": msgbody['did'], # DID
+        "fldg3QZBMZK5zKQX9": msgbody['verkey'], # Verkey
+        "fldx5CXQYKtDgc7BP": msgbody['paymentaddr'] # paymentaddr
     }
 
     upload_dict = {"records" : [{"fields" : post_body}], "typecast" : True}
@@ -873,8 +879,20 @@ async def post_airtable(body):
     print('Submitting Airtable request ...')
     async with ClientSession() as session:
         async with session.post(AIRTABLE_URL, data=upload_json, headers=headers) as resp:
-            print(resp.status)
-            print(await resp.text())
+            response = await resp.json()
+
+    #! Figure out what this acutally does.
+    # print(json.dumps(response,indent=2))
+    # test = {
+    #     "status": response.get("success", False),
+    #     "message": response.get("error-codes", None) or "Unspecified error.",
+    # }
+    # print(test)
+    
+    return {
+        "status": response.get("success", False),
+        "message": response.get("error-codes", None) or "Unspecified error.",
+    }
 
 async def handle_nym_req(request):
     handles = request.app['handles']
@@ -890,6 +908,8 @@ async def handle_nym_req(request):
     load_dotenv()
     #logging.debug("Event body >%s<" % event['body'])
     msgbody = await request.json() #written by dbluhm (not copied)
+
+    print(json.dumps(msgbody,indent=2)) #! REMOVE
 
     #! UNCOMMENT
     # verified_captcha = await verify_captcha(request)
@@ -907,14 +927,15 @@ async def handle_nym_req(request):
         'body': json.dumps(responseBody)
     }
 
+
     logger.debug("Processing single (non-batch) request...")
-    if (msgbody['did'] == "") and (msgbody['verkey'] == "") and (msgbody['paymentaddr'] == ""):
+    if (msgbody['did'] == "") and (msgbody['verkey'] == "") and (msgbody['paymentaddr'] == "") and (msgbody['first_name'] == "") and (msgbody['last_name'] == "")and (msgbody['email'] == ""):
         return web.Response(body=json.dumps(response))
     if msgbody['did'] or msgbody['verkey']:
         did = msgbody['did']
         tmp_errors = validateNym(msgbody)
 
-        logger.info(f'{type(tmp_errors)}{tmp_errors}')
+    #! Code below won't run if did and verkey aren't in the msgbody, Why?
 
     poolName = msgbody['network']
 
@@ -930,17 +951,19 @@ async def handle_nym_req(request):
     else:
         logger.info(f'Nym bound for {poolName}. No authentication required ...')
         if msgbody['first_name'] or msgbody['last_name'] or msgbody['email']:
-            verify_info_errors = await verify_Info(msgbody)
-            tmp_errors.append(verify_info_errors) 
+            verify_info_errors = await verify_info(msgbody)
+            tmp_errors.append(verify_info_errors)
     
     if len(tmp_errors) == 0:
         nyms.append(endorserNym(msgbody)) #, event)) @@@Remove event from this function call? (might mess up Main)
     else:
         errors = addErrors(did, errors, tmp_errors)
 
-    if poolName == 'buildernet':
-        # TODO post if no error
-        pass
+    if bool(errors) == False:
+        if poolName == 'buildernet':
+            post_airtable_errors = await post_airtable(msgbody)
+            # TODO finish errors
+            #tmp_errors.append(post_airtable_errors)
 
     # Check if errors is an empty dict
     if bool(errors) == False:
